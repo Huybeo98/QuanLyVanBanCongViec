@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: quanly-vanban-congviec
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /
