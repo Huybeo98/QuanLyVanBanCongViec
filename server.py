@@ -85,7 +85,9 @@ def init():
             """CREATE TABLE IF NOT EXISTS notification_log (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,kind TEXT NOT NULL,record_id INTEGER NOT NULL,notification_type TEXT NOT NULL,due_at TEXT NOT NULL,reminder_minutes INTEGER NOT NULL DEFAULT 0,sent_at TEXT NOT NULL,UNIQUE(user_id,kind,record_id,notification_type,due_at,reminder_minutes))"""
         ]
     for q in statements: c.execute(q)
+    # Bổ sung cột kết quả cho bản cá nhân; giữ nguyên dữ liệu văn bản hiện có.
     if c.pg:
+        c.execute("ALTER TABLE docs ADD COLUMN IF NOT EXISTS result TEXT DEFAULT ''")
         # Phiên bản v3 không lưu file; dọn schema file cũ nếu database đã chạy bản trước.
         c.execute('DROP TABLE IF EXISTS files')
         c.execute('ALTER TABLE docs DROP COLUMN IF EXISTS file_id')
@@ -94,6 +96,9 @@ def init():
         c.execute('ALTER TABLE tasks DROP COLUMN IF EXISTS file_name')
     if not c.execute("SELECT id FROM users WHERE user_name=?",('NongVanHuy',)).fetchone():
         c.execute("INSERT INTO users(user_name,name,password,role,active,created_at) VALUES(?,?,?,?,?,?)",('NongVanHuy','Quản trị viên',hp('11011998Huy@'),'Quản trị',True,now_iso()))
+    if not c.pg:
+        cols=[r['name'] for r in c.execute('PRAGMA table_info(docs)').fetchall()]
+        if 'result' not in cols: c.execute("ALTER TABLE docs ADD COLUMN result TEXT DEFAULT ''")
     c.commit(); c.close()
 init()
 
@@ -102,16 +107,17 @@ def me(request):
     if not user_id: raise HTTPException(401,'Chưa đăng nhập')
     c=DB(); u=c.execute('SELECT id,user_name,name,role,active FROM users WHERE id=?',(user_id,)).fetchone(); c.close()
     if not u or not u['active']: raise HTTPException(401,'Tài khoản không hợp lệ')
-    return dict(u)
+    return {**dict(u), 'role':'Cá nhân'}
 
 def adm(user):
     if user['role']!='Quản trị': raise HTTPException(403,'Chỉ quản trị viên được phép thực hiện')
 
 def user_only(user):
-    if user['role']=='Quản trị': raise HTTPException(403,'Tài khoản quản trị chỉ quản lý tài khoản.')
+    # Bản cá nhân: tài khoản chính cũng trực tiếp sử dụng toàn bộ chức năng.
+    return None
 
 class Login(BaseModel): user:str; password:str=Field(alias='pass')
-class Doc(BaseModel): no:str; title:str; date:str=''; due:str=''; secret:str='Thường'; status:str='Chưa thực hiện'
+class Doc(BaseModel): no:str=''; title:str; date:str=''; due:str=''; status:str='Chưa thực hiện'; result:str=''
 class Task(BaseModel): title:str; time:str=''; status:str='Chưa thực hiện'
 class Account(BaseModel): user:str; name:str; password:str=Field(alias='pass'); role:str='Người dùng'
 class Settings(BaseModel): reminder_minutes:int=60; overdue:bool=True; screen_notify:bool=True; sound_notify:bool=True; voice_notify:bool=True
@@ -142,7 +148,7 @@ def tasks(request:Request): return getrows('tasks',me(request))
 
 def addrec(request,x,table):
     user=me(request); user_only(user); c=DB(); now=now_iso()
-    if table=='docs': cur=c.execute('INSERT INTO docs(owner_id,date,no,title,due,secret,status,created_at) VALUES(?,?,?,?,?,?,?,?) RETURNING id',(user['id'],x.date,x.no,x.title,x.due,x.secret,x.status,now))
+    if table=='docs': cur=c.execute('INSERT INTO docs(owner_id,date,no,title,due,secret,status,created_at,result) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id',(user['id'],x.date,x.no,x.title,x.due,'Thường',x.status,now,x.result))
     else: cur=c.execute('INSERT INTO tasks(owner_id,title,time,status,created_at) VALUES(?,?,?,?,?) RETURNING id',(user['id'],x.title,x.time,x.status,now))
     new_id=cur.fetchone()['id']; c.commit(); row=c.execute(f'SELECT * FROM {table} WHERE id=?',(new_id,)).fetchone(); c.close(); return dict(row)
 @app.post('/api/docs')
@@ -153,7 +159,7 @@ def addtask(request:Request,x:Task): return addrec(request,x,'tasks')
 def patchrec(request,record_id,x,table):
     user=me(request); user_only(user); c=DB(); old=c.execute(f'SELECT * FROM {table} WHERE id=? AND owner_id=?',(record_id,user['id'])).fetchone()
     if not old: c.close(); raise HTTPException(404,'Không tìm thấy')
-    if table=='docs': c.execute('UPDATE docs SET date=?,no=?,title=?,due=?,secret=?,status=? WHERE id=?',(x.date,x.no,x.title,x.due,x.secret,x.status,record_id))
+    if table=='docs': c.execute('UPDATE docs SET date=?,no=?,title=?,due=?,secret=?,status=?,result=? WHERE id=?',(x.date,x.no,x.title,x.due,'Thường',x.status,x.result,record_id))
     else: c.execute('UPDATE tasks SET title=?,time=?,status=? WHERE id=?',(x.title,x.time,x.status,record_id))
     c.commit(); row=c.execute(f'SELECT * FROM {table} WHERE id=?',(record_id,)).fetchone(); c.close(); return dict(row)
 @app.patch('/api/docs/{id}')
@@ -243,7 +249,7 @@ def parse_due(value):
 def run_reminders():
     if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY: return {'sent':0,'skipped':'VAPID chưa cấu hình'}
     now=datetime.datetime.now(datetime.timezone.utc); c=DB(); sent=0; removed=0
-    users=c.execute("SELECT id FROM users WHERE active=TRUE AND role='Người dùng'").fetchall()
+    users=c.execute("SELECT id FROM users WHERE active=TRUE").fetchall()
     for u in users:
         uid_=u['id']; s=c.execute('SELECT reminder_minutes,overdue,screen_notify FROM settings WHERE user_id=?',(uid_,)).fetchone(); mins=int(s['reminder_minutes']) if s else 60; overdue=bool(s['overdue']) if s else True; screen=bool(s['screen_notify']) if s else True
         if not screen: continue

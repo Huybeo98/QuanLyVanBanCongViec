@@ -1,57 +1,27 @@
-# Quản lý Văn bản & Công việc — PWA v3
+# QUẢN LÝ VĂN BẢN CÁ NHÂN
 
-Ứng dụng PWA dùng trên **điện thoại và máy tính**. Mỗi tài khoản Người dùng có một hệ thống dữ liệu riêng: văn bản, lịch công việc, báo cáo và cài đặt thông báo. **Admin chỉ quản lý tài khoản**, không xem/sửa dữ liệu văn bản, công việc hoặc báo cáo của người dùng.
+Ứng dụng web/PWA cá nhân, dùng trên máy tính và điện thoại.
 
-## Thay đổi v3
-- Không hiển thị gợi ý tài khoản/mật khẩu trên giao diện đăng nhập.
-- Admin chỉ có màn hình quản trị tài khoản.
-- Không lưu file công văn, file công việc hoặc file báo cáo. Chỉ lưu thông tin/danh sách văn bản và công việc.
-- Nhắc hạn bằng tiếng Việt.
-- PWA + Service Worker + Web Push: sau khi người dùng cấp quyền, thông báo chữ có thể đến khi cửa sổ App đã đóng.
-- Thông báo khi App đóng dùng âm thanh do hệ điều hành/trình duyệt điều khiển; không thể ép trình duyệt phát một file âm thanh tùy ý khi App đã đóng.
-- Đọc bằng giọng nói tiếng Việt (`speechSynthesis`) hoạt động khi App đang mở; khi App đóng, Web Push không được phép chạy TTS tùy ý.
-- Có nút cài App trên thiết bị.
-- Có API lưu Push Subscription theo từng tài khoản.
-- Có `reminder_worker.py` để chạy nhắc hạn định kỳ.
+## Chức năng
+- Quản lý văn bản với các trường: TT tự động, Ký hiệu, Trích yếu, Hạn, Trạng thái (Đã thực hiện/Chưa thực hiện), Kết quả.
+- Thêm, sửa, xóa, tìm kiếm và lọc văn bản.
+- Thống kê nhanh tổng số, đã thực hiện, chưa thực hiện, quá hạn.
+- Cài đặt nhắc trước hạn; thông báo đẩy khi cửa sổ ứng dụng đóng (cần trình duyệt/hệ điều hành hỗ trợ và đã cấp quyền).
+- Âm thanh và đọc tiếng Việt khi ứng dụng đang mở.
+- Logo ứng dụng theo hình người dùng cung cấp; chân trang NVHuy 0356191555.
+- Dữ liệu lưu trong PostgreSQL khi có DATABASE_URL; hỗ trợ SQLite khi chạy cục bộ.
 
-## Tài khoản Admin
-- Username: `NongVanHuy`
-- Mật khẩu khởi tạo: `11011998Huy@`
+## Triển khai Render
+1. Đẩy toàn bộ nội dung thư mục này lên GitHub.
+2. Tạo Web Service từ repository bằng Docker.
+3. Gắn PostgreSQL và đặt `DATABASE_URL`.
+4. Đặt `APP_SECRET` bằng chuỗi bí mật dài, riêng tư.
+5. Đặt `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL` để bật Web Push.
+6. Tạo Cron Job chạy `python reminder_worker.py` mỗi phút, dùng cùng `DATABASE_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_EMAIL`.
+7. Dùng HTTPS, mở ứng dụng, đăng nhập tài khoản cá nhân đã có, vào Cài đặt nhắc hạn và cấp quyền thông báo trên từng thiết bị.
 
-Không hiển thị các thông tin này trên màn hình đăng nhập. Nên đổi mật khẩu trong phiên bản quản trị tài khoản nâng cao sau này.
-
-## Dữ liệu
-- PostgreSQL: users, docs, tasks, settings, push_subscriptions, notification_log.
-- Không có bảng lưu file công văn/báo cáo trong phiên bản này.
-- Backend luôn lọc `owner_id` theo tài khoản Người dùng.
-- Admin bị chặn ở các API docs/tasks/settings/push.
-
-## Web Push
-Cần 3 biến môi trường trên Web Service và Cron Job:
-- `VAPID_PUBLIC_KEY`
-- `VAPID_PRIVATE_KEY`
-- `VAPID_EMAIL` (ví dụ `mailto:tenban@example.com`)
-
-Tạo cặp khóa bằng:
-```text
-python generate_vapid.py
-```
-Sau đó đưa kết quả vào Environment Variables của Render. **Không đưa VAPID_PRIVATE_KEY vào GitHub.**
-
-## Nhắc hạn khi App đã đóng
-Web Push cần một tiến trình server chạy định kỳ để kiểm tra hạn và gửi push. Render Free Web Service có thể bị spin down, vì vậy không dùng `setInterval` trên trình duyệt làm cơ chế đảm bảo. `render.yaml` có sẵn Cron Job chạy mỗi phút; Cron Job hiện là compute trả phí trên Render. Nếu chưa muốn trả phí, có thể chạy `reminder_worker.py` từ một scheduler bên ngoài, nhưng thời gian chạy có thể có độ trễ.
-
-## Render
-- Web Service: Docker.
-- PostgreSQL: dùng `DATABASE_URL`.
-- Cron Job: `python reminder_worker.py`, mỗi phút.
-- VAPID keys phải được khai báo riêng trên Web Service và Cron Job.
-
-## Giao diện
-- 🟨 Sắp đến hạn.
-- 🟥 Quá hạn.
-- 🟩 Đã hoàn thành.
-- 🔔 Biểu ngữ cảnh báo trong App.
-- 🔊 Âm thanh khi App đang mở.
-- 🗣️ Lời nhắc tiếng Việt khi App đang mở.
-- 📱/💻 Web Push khi App đã đóng và thiết bị/trình duyệt đã cấp quyền.
+## Lưu ý
+- Cập nhật schema tự động thêm cột `result`, không xóa dữ liệu văn bản hiện có.
+- Ứng dụng không lưu file đính kèm.
+- Trình duyệt không bảo đảm phát giọng đọc TTS sau khi đóng hoàn toàn; thông báo đẩy do hệ điều hành hiển thị.
+- Tài khoản cá nhân cũ được giữ để tiếp tục đăng nhập; không còn giao diện tạo/quản lý nhiều tài khoản.
